@@ -28,8 +28,6 @@ int read_option(const int);
 void flush_stdin();
 std::string find_file();
 
-void write_vector_to_file(const std::vector<MIDI_DATA>, std::string);
-std::vector<MIDI_DATA> read_vector_from_file(std::string filename);
 
 static void finish(int ignore){ 
   done = true;   
@@ -118,11 +116,27 @@ int main(){
         continue;
       }
       if (std::FILE* f {std::fopen(filename.data(), "rb")}) {
-        std::vector<MIDI_DATA> line(MAX_MIDI_BYTES); 
-        std::size_t s {};
-        while ((s = std::fread(line.data(), sizeof line[0], line.size(), f)) > 0){          
+        constexpr size_t buffer_length {256};
+        MIDI_DATA buffer [buffer_length]; 
+        size_t s {};
+        std::vector<MIDI_DATA> line;
+        while ((s = std::fread(buffer, sizeof buffer[0], buffer_length, f)) > 0){
+          size_t p {0};
+          for (size_t i{0}; i<s; i++){
+            if((buffer[i] == 0) and (i > p)){
+              line.insert(line.end(), buffer + p, buffer + p + i -1 )
+              data.push_back(line);
+              line.clear();
+              count += i - p;
+              p = i;
+            }
+          }
+        }
+        if (s > p){
+          line.insert(line.end(), buffer + p, buffer + p + s -1 )
           data.push_back(line);
-          count += s;
+          line.clear();
+          count += s - p;
         } 
         std::fclose(f);
         std::cout << "Read " << count << " bytes from file \"" << filename << "\"." <<  std::endl;
