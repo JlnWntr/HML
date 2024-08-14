@@ -37,6 +37,7 @@ int main(){
   bool run {true};
   int option{};
   unsigned int count {0};
+  constexpr unsigned char T{255}; //terminal char
   std::vector<std::vector<MIDI_DATA>> data; 
   
   while (run == true){    
@@ -45,11 +46,12 @@ int main(){
     std::cout << "\t2: Send MIDI data to a device" << std::endl;
     std::cout << "\t3: Load MIDI data from a file" << std::endl;
     std::cout << "\t4: Save current MIDI data to a file" << std::endl;
-    std::cout << "\t5: Exit (default)" << std::endl;
-    option = read_option(5);        
+    std::cout << "\t5: Print data" << std::endl;
+    std::cout << "\t6: Exit (default)" << std::endl;
+    option = read_option(6);        
 
   // 1 ------------------------------------------------------------------------    
-    if (option <= 1) { // Read Midi
+    if (option <= 1) { // Read Midi from device
       RtMidiIn midiin{};  
         
       midiin.ignoreTypes( false, false, false );// Don't ignore anything
@@ -81,7 +83,7 @@ int main(){
     }
 
   // 2 ------------------------------------------------------------------------
-    else if (option == 2) { // Write Midi
+    else if (option == 2) { // Write Midi to device
       RtMidiOut midiout {}; 
       count = 0;
       if (chooseMidiPort(midiout) == false){
@@ -106,38 +108,42 @@ int main(){
     }
 
   // 3 ------------------------------------------------------------------------
-    else if (option == 3) { // Load file
+    else if (option == 3) { // Read file
       count = 0;
-      data.clear();
-
       const std::string filename {find_file()};
       if (filename.empty() == true){
         //std::cerr << "No .mid file found in directory!" << std::endl; 
         continue;
-      }
-      if (std::FILE* f {std::fopen(filename.data(), "rb")}) {
+      }     
+      if (std::FILE* f {std::fopen(filename.data(), "rb")}) { 
+        data.clear();
         constexpr size_t buffer_length {256};
         MIDI_DATA buffer [buffer_length]; 
         size_t s {};
+        size_t p {};
+        size_t t {};
+        
         std::vector<MIDI_DATA> line;
         while ((s = std::fread(buffer, sizeof buffer[0], buffer_length, f)) > 0){
-          size_t p {0};
-          for (size_t i{0}; i<s; i++){
-            if((buffer[i] == 0) and (i > p)){
-              line.insert(line.end(), buffer + p, buffer + p + i -1 )
-              data.push_back(line);
-              line.clear();
-              count += i - p;
-              p = i;
+            p = 0;
+            t = s;
+            for (size_t i{0}; i<s; i++){
+                if(buffer[i] != T) continue;
+                while(( buffer[p] == T ) and ( p<i ))  p++;
+                if( buffer[p]== T ) continue;                           
+                line.insert(line.end(), buffer + p, buffer + i);
+                data.push_back(line);
+                line.clear();           
+                count += i - p; 
+                p = i + 1 ;  
             }
-          }
+        }    
+        if (t > p){ //insert rest
+            line.insert(line.end(), buffer + p, buffer + t );
+            data.push_back(line);
+            line.clear();
+            count += t - p;
         }
-        if (s > p){
-          line.insert(line.end(), buffer + p, buffer + p + s -1 )
-          data.push_back(line);
-          line.clear();
-          count += s - p;
-        } 
         std::fclose(f);
         std::cout << "Read " << count << " bytes from file \"" << filename << "\"." <<  std::endl;
       } 
@@ -152,25 +158,39 @@ int main(){
       if (data.size() > 0){
         std::time_t t {std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())}; 
         std::string filename{std::ctime(&t)};
-        if ((filename.empty() == false) && (filename[filename.length()-1] == '\n'))
+        filename="test";
+        if ((filename.empty() == false) and (filename[filename.length()-1] == '\n'))
           filename.erase(filename.length()-1);
         filename += FILE_TYPE;        
 
         if (std::FILE* f {std::fopen(filename.data(), "wb")}) {            
           for (auto &d : data){
-            while (d.size() < MAX_MIDI_BYTES) d.push_back(0);   //Padding           
-            const size_t s {std::fwrite(d.data(), sizeof d[0], MAX_MIDI_BYTES, f)};
+            do 
+              d.push_back(T); 
+            while (d.size() < MAX_MIDI_BYTES);   
+            const size_t s {std::fwrite(d.data(), sizeof d[0], d.size(), f)};
             count += s;
           }
           std::fclose(f);
         } else 
           std::cerr << "Could not write to \"" << filename << "\"!" << std::endl;  
+        data.clear();
         std::cout << "Wrote " << count << " bytes to \"" << filename << "\"." << std::endl;        
+        std::cout << "Data cleared!!!" << std::endl;
       } else
         std::cerr << "No data recorded yet!" << std::endl;  
     }
-
   // 5 ------------------------------------------------------------------------
+    else if (option == 5) { // Print data      
+      if (data.size() > 0){
+       for (auto &d : data){
+        for (auto &b : d)  std::cout << std::to_string(b) << " ";            
+        std::cout << std::endl; 
+       }      
+      } else
+        std::cerr << "No data recorded yet!" << std::endl;  
+    }
+  // 6 ------------------------------------------------------------------------
     else break;
   }  
   return 0;
@@ -207,12 +227,11 @@ bool chooseMidiPort(RtMidi &rtmidi){
     std::cout << "Choose a port number: " << std::endl;
     for (i=0; i<nPorts; i++) {
       portName = rtmidi.getPortName(i);
-      std::cout << "\tPort " << i << ": " << portName << std::endl;      
+      std::cout << "\tPort " << i  << " : " << portName << std::endl;      
     }    
     std::cin >> i;    
     std::getline(std::cin, keyHit);  // used to clear out stdin
-  }  
-
+  }    
   if(( i > nPorts ) or (i < 0)) 
     return false;
 
